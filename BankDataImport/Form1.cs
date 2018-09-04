@@ -18,6 +18,7 @@ namespace BankDataImport
         }
         Dictionary<string, string> CP_Cepass_Pair = new Dictionary<string, string>();
         Dictionary<string, string> CP_Mechant_Pair = new Dictionary<string, string>();
+        Dictionary<string, string> CP_TypeID_Pair = new Dictionary<string, string>();
         private void Form1_Load(object sender, EventArgs e)
         {
             initContainer();
@@ -49,15 +50,16 @@ namespace BankDataImport
             {
                 string carpark = dr["CarParkID"].ToString();
                 string merchant_ID = dr["Carpark12digitNo"].ToString();
+                string TypeID = dr["CarparkTypeID"].ToString();
                 if (GetReapt == merchant_ID)
                 {
                     continue;
                 }
                 CP_Mechant_Pair.Add(merchant_ID, carpark);
+                CP_TypeID_Pair.Add(merchant_ID, TypeID);
                 GetReapt = merchant_ID;
                 //LogClass.WriteLog(merchant_ID);
             }
-
 
             string GetLtaReapt = null;
             foreach (DataRow dr in ds.Tables[1].Rows)
@@ -72,8 +74,44 @@ namespace BankDataImport
                 GetLtaReapt = cepass_ID;
                 //LogClass.WriteLog(cepass_ID);
             }
-
         }
+
+        static void Copy(string filepath, string topath)
+        {
+            try
+            {
+                if (File.Exists(filepath))
+                {
+                    if (!Directory.Exists(Application.StartupPath + "//backup"))
+                    {
+                        Directory.CreateDirectory(Application.StartupPath + "//backup");
+                    }
+                    File.Copy(filepath, topath, true);
+                }
+            }
+            catch (Exception e)
+            {
+
+            }
+        }
+        //Delete File
+        static void Delete(string filepath)
+        {
+            try
+            {
+                if (File.Exists(filepath))
+                {
+                    File.Delete(filepath);
+                }
+            }
+            catch (Exception e)
+            {
+
+            }
+        }
+
+
+
 
         private void letsdoit()
         {
@@ -84,9 +122,10 @@ namespace BankDataImport
                 if ((NextFile.Extension.Equals(".csv")) || (NextFile.Extension.Equals(".xls")) || (NextFile.Extension.Equals(".xlsx")))
                 {
                     LetsRead(NextFile, NextFile.Name.Split('.')[0].ToUpper());
-
                 }
             }
+
+
             Application.Exit();
         }
 
@@ -120,11 +159,17 @@ namespace BankDataImport
                 {
                     case "NETS":
                         string Retailer_Id = col[0].ToString();
+
+                        if (Retailer_Id.Contains("TOPUP"))
+                        {
+                            continue;
+                        }
+
                         string[] str_array = Retailer_Id.Split('(');
                         string pre_retailer = null;
                         if (str_array.Length > 1)
                         {
-                             pre_retailer = str_array[1];
+                            pre_retailer = str_array[1];
                         }
                         else
                         {
@@ -138,16 +183,24 @@ namespace BankDataImport
                         string Credit = col[3].ToString();
                         string Debit = col[4].ToString();
                         string Transaction_dt = col[5].ToString();
+                       
+
+                        if(!CP_TypeID_Pair.TryGetValue(Retailer_Id,out string type_id))
+                        {
+                            type_id = "-1";
+                        }
+
+
                         //string Merchant_ID =;
                         LogClass.WriteLog($"{Retailer_Id},{Cashcard_Purchase},{Cashcard_Transaction},{Credit},{Debit},{Transaction_dt}");
                         //update nets db.
                         if (!CP_Mechant_Pair.TryGetValue(Retailer_Id, out string carpark_nets))
                         {
-                            carpark_nets = "NuknowCP";
+                            carpark_nets = "unknow";
                         }
 
-                        string cmd_nets = @"Insert INTO [NETS_Details](Retailer_Id,Cashcard_Purchase,Cashcard_Transaction,Credit,Debit,CarParkName,Transaction_dt,Update_dt)
-                                                         VALUES(@Retailer_Id,@Cashcard_Purchase,@Cashcard_Transaction,@Credit,@Debit,@CarParkName,@Transaction_dt,getdate())";
+                        string cmd_nets = @"Insert INTO [NETS_Details](Retailer_Id,Cashcard_Purchase,Cashcard_Transaction,Credit,Debit,CarParkName,Transaction_dt,Update_dt,Type_id)
+                                                         VALUES(@Retailer_Id,@Cashcard_Purchase,@Cashcard_Transaction,@Credit,@Debit,@CarParkName,@Transaction_dt,getdate(),@type_id)";
                         SqlParameter[] para_nets = new SqlParameter[]
                         {
                             new SqlParameter("@Retailer_Id",Retailer_Id),
@@ -156,12 +209,14 @@ namespace BankDataImport
                             new SqlParameter("@Credit",Credit),
                             new SqlParameter("@Debit",Debit),
                             new SqlParameter("@CarParkName",carpark_nets),
-                            new SqlParameter("@Transaction_dt",Transaction_dt)
+                            new SqlParameter("@Transaction_dt",Transaction_dt),
+                            new SqlParameter("@type_id",type_id)
                         };
 
                         try
                         {
                             SqlHelper.ExecuteNonQuery(constr, CommandType.Text, cmd_nets, para_nets);
+                           
                         }
                         catch (SqlException netse)
                         {
@@ -175,7 +230,15 @@ namespace BankDataImport
                         string Carpark_ID = col[2].ToString();
                         string Card_Manager = col[3].ToString();
                         string LTA_Process_Date = col[4].ToString();
-                        LTA_Process_Date = (Convert.ToDateTime(LTA_Process_Date)).ToString("yyyy-MM-dd HH:mm:ss");
+                        if (LTA_Process_Date != null && LTA_Process_Date != "")
+                        {
+                            LTA_Process_Date = (Convert.ToDateTime(LTA_Process_Date)).ToString("yyyy-MM-dd HH:mm:ss");
+                        }
+                        else
+                        {
+                            continue;
+                        }
+
                         string Transaction_Date = col[5].ToString();
                         Transaction_Date = (Convert.ToDateTime(Transaction_Date)).ToString("yyyy-MM-dd HH:mm:ss");
                         string Total_Processed_Count = col[6].ToString();
@@ -185,7 +248,7 @@ namespace BankDataImport
 
                         if (!CP_Cepass_Pair.TryGetValue(Carpark_ID, out string carpark_lta))
                         {
-                            carpark_lta = "NuknowCP";
+                            carpark_lta = "unknow";
                         }
 
                         string cmd_lta = @"Insert INTO [LTA_Details](CarparkOwnerUENID,CarparkOwnerID,CarparkID,CardManager,LTAProcessDate,TransactionDate,TotalProcessedCount,TotalProcessedAmount,CarParkName,Update_dt)
@@ -206,7 +269,8 @@ namespace BankDataImport
                         try
                         {
 
-                            //SqlHelper.ExecuteNonQuery(constr, CommandType.Text, cmd_lta, para_lta);
+                            SqlHelper.ExecuteNonQuery(constr, CommandType.Text, cmd_lta, para_lta);
+                            
                         }
                         catch (SqlException ltae)
                         {
@@ -215,6 +279,9 @@ namespace BankDataImport
                         break;
                 }
             }
+
+            Copy(Application.StartupPath + $"//{type}.xls", Application.StartupPath + $"//backup//{type}_{DateTime.Now.ToString("yyyyMMddHHmmss")}.xls");
+            Delete(Application.StartupPath + $"//{type}.xls");
         }
 
     }
